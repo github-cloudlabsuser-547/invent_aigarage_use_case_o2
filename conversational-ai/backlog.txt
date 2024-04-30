@@ -1,0 +1,3 @@
+https://towardsdatascience.com/building-a-conversational-agent-with-memory-microservice-with-openai-and-fastapi-5d0102bc8df9
+
+https://github.com/cfloressuazo/conversational-ai?tab=readme-ov-file

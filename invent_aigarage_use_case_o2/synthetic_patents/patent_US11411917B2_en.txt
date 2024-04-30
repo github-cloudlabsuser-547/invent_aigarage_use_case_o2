@@ -1,0 +1,28 @@
+Title: Method for Detecting, Blocking, and Reporting Cyber-Attacks against Automotive Systems
+
+Abstract:
+The present invention relates to a method for detecting, blocking, and reporting cyber-attacks against automotive systems. As the number of connected and autonomous vehicles on the road increases, the risk of cyber-attacks targeting these vehicles also rises. This method utilizes a combination of hardware and software components to constantly monitor and protect automotive systems from potential cyber-attacks. The method also includes a reporting mechanism to alert relevant parties in the event of a detected attack. 
+
+Background:
+With the increasing use of electronic control units (ECUs) and internet connectivity in modern vehicles, the vulnerability to cyber-attacks has become a major concern in the automotive industry. These attacks can potentially compromise the safety and security of the vehicle and its passengers, leading to serious consequences. Therefore, there is a need for a method that can effectively detect, block, and report cyber-attacks targeted at automotive systems.
+
+Description:
+The method for detecting, blocking, and reporting cyber-attacks against automotive systems comprises of the following steps:
+
+1. Detection:
+A combination of sensors and software is used to constantly monitor the behavior of the vehicle's systems. Any unusual or unauthorized activity is immediately flagged as a potential cyber-attack.
+
+2. Blocking:
+Once a cyber-attack is detected, the method utilizes a firewall system to block any unauthorized access to the vehicle's systems. This prevents the attack from causing any harm to the vehicle or its passengers.
+
+3. Reporting:
+In the event of a detected cyber-attack, the method includes a reporting mechanism that immediately alerts the relevant parties, such as the vehicle owner, manufacturer, and security agencies. This allows for quick and efficient action to be taken to mitigate the attack.
+
+4. Constant Updates:
+The method also includes a system for regularly updating the software components to stay ahead of new and emerging cyber threats. This ensures that the vehicle's systems are always protected against the latest attacks.
+
+Advantages:
+The method for detecting, blocking, and reporting cyber-attacks against automotive systems offers several advantages. Firstly, it provides real-time protection against cyber threats, ensuring the safety and security of the vehicle and its passengers. Additionally, the reporting mechanism allows for prompt action to be taken in the event of an attack, minimizing potential damages. Furthermore, the constant updates to the system ensure that it remains effective against evolving cyber threats.
+
+Conclusion:
+The method for detecting, blocking, and reporting cyber-attacks against automotive systems offers a comprehensive solution to the growing concern of cyber-attacks targeted at vehicles. By constantly monitoring and protecting against potential attacks, this method ensures the safety and security of both the vehicle and its passengers. Its reporting mechanism and regular updates also make it a proactive and efficient solution in the fight against cyber threats in the automotive industry.

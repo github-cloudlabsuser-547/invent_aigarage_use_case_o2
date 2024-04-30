@@ -1,0 +1,23 @@
+Title: Vehicle-to-Everything Session and Service Continuity in Automotive Edge Computing
+
+Background:
+The automotive industry has experienced significant advancements in recent years, with the introduction of connected and autonomous vehicles. These vehicles rely heavily on real-time data and communication with external entities, such as other vehicles, infrastructure, and cloud services, to provide efficient and safe transportation. This has led to the emergence of automotive edge computing, which enables data processing and storage at the edge of the network, closer to the vehicles. However, ensuring uninterrupted connectivity and service continuity in such a dynamic environment remains a challenge. To address this issue, we present the invention of Vehicle-to-Everything (V2X) session and service continuity in automotive edge computing.
+
+Summary of the Invention:
+Our invention provides a method and system for maintaining session and service continuity for V2X communication in automotive edge computing. The system comprises of a V2X communication unit, an edge computing unit, and a service continuity management unit. The V2X communication unit enables wireless communication with external entities, while the edge computing unit processes and stores data at the edge of the network. The service continuity management unit ensures uninterrupted connectivity and seamless service handover between the edge and cloud services.
+
+Functionality:
+The V2X session and service continuity system works in the following manner:
+1. Establishing Communication: When a vehicle enters a network, the V2X communication unit establishes a connection with other vehicles, infrastructure, and cloud services.
+2. Edge Computing: As the vehicle moves, the edge computing unit collects and processes data from the vehicle's sensors and external sources, such as traffic signals and weather stations.
+3. Service Continuity Management: The service continuity management unit continuously monitors the connectivity and service quality of the V2X session. In case of a network disruption or degradation, it initiates a handover of services from the edge computing unit to the cloud services seamlessly.
+4. Handover of Services: The handover process involves transferring the ongoing V2X session and associated data to the cloud services without any interruption. Once the network connection is re-established, the services are handed back to the edge computing unit.
+
+Advantages:
+1. Uninterrupted Connectivity: Our invention ensures uninterrupted connectivity for V2X communication, even in areas with poor network coverage.
+2. Seamless Service Handover: The system enables seamless handover of services between the edge and cloud computing, ensuring no disruption in the V2X session.
+3. Reduced Latency: By processing data at the edge of the network, our system reduces the latency in V2X communication, leading to faster response times.
+4. Cost-Efficiency: With the ability to switch between edge and cloud services, our system optimizes the usage of network and computing resources, resulting in cost savings.
+
+Conclusion:
+In conclusion, our invention of V2X session and service continuity in automotive edge computing provides a robust solution for maintaining uninterrupted communication and service in a dynamic environment. With the growing popularity of connected and autonomous vehicles, our invention has the potential to revolutionize the automotive industry and pave the way for a safer and more efficient transportation system.
