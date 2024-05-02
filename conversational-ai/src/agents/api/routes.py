@@ -262,7 +262,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
     intent = get_user_intent(message.message, chat_messages[-1:]) # What if not adminstration or technical
     log.info(f"User input classified as: {intent}")
 
-    if "1" in intent:
+    if "1" == intent:
         # Adminstration
         tag = "procedures"
         path_to_df = "data/a4_db_onboarding.csv"
@@ -271,7 +271,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
             'thumbnail', 'pdf', 'page', 'entities']
         system_prompt = "You are an organizational agent, helping users with their questions on the organization and adminstrative procedures."
 
-    elif "2" in intent: 
+    elif "2" == intent: 
         # Technical 
         tag = "technologies"
         path_to_df = "data/a4_db_data.csv"
@@ -281,8 +281,11 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
         system_prompt = "You are an organizational agent, helping users with their technical questions related to the automotive industry."
         
     else: 
-        return {"api_response": "I can only answer questions related to either the organization or technical processes."}
-        # NOTE: Follow up questions are likely missclassified.
+        system_prompt = "You are an organizational agent supposed to help employees of the company with any question they might have."
+        context_prompt = [{"role": "user", "content": message.message}]
+        meta_json_data = []
+        ner_recommendations = []
+           
 
     context = craft_agent_chat_context(system_prompt)
     # Send the message to the AI agent and get the response
@@ -295,26 +298,29 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
     )
 
     service.add_chat_history(messages = chat_messages)
-    embedding = get_embedding(message.message)
 
-    broad_context = retrieve(
-        embedding,
-        top_k           = 25,
-        path_to_df      = path_to_df, 
-        path_to_index   = path_to_index
-        )
-    
-    # Reranker
-    response = jina_reranker(message.message, broad_context)
 
-    context = broad_context.iloc[[int(i['index']) for i in response['results']], :].reset_index()
-    context_str = "\n".join(i['document']['text'] for i in response['results'])
-    context_prompt =  generate_prompt(message.message, context_str)
+    if (intent == "1") or (intent == "2"):
+        embedding = get_embedding(message.message)
 
-    ner_recommendations = get_recommendations(context, broad_context, tag=tag)
-    meta_json_data = context[meta_columns].to_json(orient='records')
+        broad_context = retrieve(
+            embedding,
+            top_k           = 25,
+            path_to_df      = path_to_df, 
+            path_to_index   = path_to_index
+            )
+        
+        # Reranker
+        response = jina_reranker(message.message, broad_context, top_n=5)
 
-    
+        context = broad_context.iloc[[int(i['index']) for i in response['results']], :].reset_index()
+        context_str = "\n".join(i['document']['text'] for i in response['results'])
+        context_prompt =  generate_prompt(message.message, context_str)
+
+        ner_recommendations = get_recommendations(context, broad_context, tag=tag)
+        meta_json_data = context[meta_columns].to_json(orient='records')
+
+        
     # fuzzy mathching
     
     chat_history = service.messages[:1] + service.messages[1:][-4:]
@@ -399,7 +405,7 @@ def get_recommendations(context, broad_context, tag):
     
     return ner_recommendations
 
-def jina_reranker(msg, context):
+def jina_reranker(msg, context, top_n):
     url = f"https://api.jina.ai/v1/rerank"
 
     headers = {
@@ -411,7 +417,7 @@ def jina_reranker(msg, context):
         "model": "jina-reranker-v1-base-en",
         "query": msg,
         "documents": context.text_chunks.to_list(),
-        "top_n": 3
+        "top_n": top_n
     }
 
     # TODO: Manuals synthetic
@@ -428,13 +434,16 @@ def get_user_intent(query: str, chat_history):
                 "Classify the user input into one of two categories (1/ 2):\n\n"
                 "(1) Administration and Organizational Information: This category includes queries related to administrative tasks, organizational procedures, and general information about the company's operations.\n"
                 "(2) Patent and Manual Information for Engineering Questions: This category covers inquiries regarding patents, engineering manuals, technical documentation, and guidance related to engineering concepts and practices.\n\n"
-                "Return only the number '1' or '2'\n\n"
+                "Return only the number '1' or '2'. If neither is applicaable return '0'.\n\n"
                 "Examples:\n"
+                "Who won yesterday football match? > returns: 0\n"
                 "How do I request time off from work? > returns: 1\n"
                 "What are the steps to onboard a new employee? > returns: 1\n"
+                "What information do you have on kitchen furniture? > returns: 0\n"
                 "Where can I find the company's holiday schedule? > returns: 1\n"
                 "I need information about the filing process for a new patent. > returns: 2\n"
                 "How do I troubleshoot a malfunctioning machine according to the engineering manual? > returns: 2\n"
+                "Are strawberries a fruit? > returns: 0\n"
                 "What is the recommended maintenance schedule for our equipment? > returns: 2 > returns: 2\n"
                 "Where can I locate the technical specifications for product X? > returns: 2\n"
                 "Can you explain the process for obtaining approval for a new project? > returns: 1\n"
@@ -538,7 +547,7 @@ def generate_prompt(input_text: str, context) -> list[str]:
     return prompt
 
 
-def retrieve_context(search_vector, df_condensed, index, top_k: int=3, distance_threshold=0.3) -> pd.DataFrame:
+def retrieve_context(search_vector, df_condensed, index, top_k: int=25, distance_threshold=0.3) -> pd.DataFrame:
     """
     function to retrieve relevant documents from an index based on a user query
     - documents are used as context for the LLM
