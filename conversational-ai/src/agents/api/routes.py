@@ -9,11 +9,12 @@ import json
 import faiss
 from openai import AzureOpenAI
 import os 
+import requests
 import dotenv
 from numpy import dot
 from numpy.linalg import norm
 dotenv.load_dotenv()
-
+from sqlalchemy import create_engine, MetaData
 import agents.api.schemas
 import agents.crud
 import agents.models
@@ -25,7 +26,6 @@ from agentsfwrk import integrations, logger
 
 log = logger.get_logger(__name__)
 
-agents.models.Base.metadata.create_all(bind = engine)
 
 # Router basic information
 router = APIRouter(
@@ -36,6 +36,7 @@ router = APIRouter(
 
 # Dependency: Used to get the database in our endpoints.
 def get_db():
+    agents.models.Base.metadata.create_all(bind = engine)
     db = SessionLocal()
     try:
         yield db
@@ -46,6 +47,20 @@ def get_db():
 @router.get("/")
 async def agents_root():
     return {"message": "Hello there conversational ai!"}
+
+# Root endpoint for the router.
+@router.get("/reset-db")
+def reset_db(db: Session = Depends(get_db)):
+    
+    # Close existing sessions
+    SessionLocal.close_all()
+
+    # Reflect existing tables and drop them
+    metadata = MetaData()
+    metadata.reflect(bind=engine)
+    metadata.drop_all(bind=engine)
+
+    return {"message": "DB reset"}
 
 @router.get("/get-agents", response_model = List[agents.api.schemas.Agent])
 async def get_agents(db: Session = Depends(get_db)):
@@ -102,68 +117,102 @@ async def get_messages(conversation_id: str, db: Session = Depends(get_db)):
 
     return db_messages
 
+@router.post("/save-chat")
+async def save_chat(message: agents.api.schemas.SaveChat, db: Session = Depends(get_db)):
+    log.info(f"User conversation id: {message.conversation_id}")
+
+    conversation = agents.crud.get_conversation(db, message.conversation_id)
+
+    if not conversation:
+        return HTTPException(
+            status_code = 404,
+            detail = "Conversation not found. Please create conversation first."
+        )
+
+
+    chat_messages = []
+
+    # NOTE: Append to the conversation all messages until the last interaction from the agent
+    # If there are no messages, then this has no effect.
+    # Otherwise, we append each in order by timestamp (which makes logical sense).
+    hist_messages = conversation.messages
+    hist_messages.sort(key = lambda x: x.timestamp, reverse = False)
+    if len(hist_messages) > 0:
+        for mes in hist_messages:
+            chat_messages.append(
+                {
+                    "role": "user",
+                    "content": mes.user_message
+                }
+            )
+            chat_messages.append(
+                {
+                    "role": "assistant",
+                    "content": mes.agent_message
+                }
+            )
+
+    # Initialize an empty string to store the chat
+    chat_string = ""
+    for msg in chat_messages:
+        chat_string += f"{msg['role']}: {msg['content']}\n"
+
+    prompt = [
+        {
+            "role": "system",
+            "content": "Summarize the user chat input, focusing on capturing user knowledge."
+        },
+        {
+            "role": "user",
+            "content": chat_string
+        }
+    ]
+
+    client = AzureOpenAI(
+        api_key = os.getenv("AZURE_OPENAI_KEY"),
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT"),
+        api_version="2024-03-01-preview"
+        )
+
+    summary = client.chat.completions.create(
+                    model       = "chat-model",
+                    messages    = prompt,
+                ).choices[0].message.content
+
+    # tagging
+    timestamp = hist_messages[-1].timestamp
+
+    # Prepare response to the user
+    api_response = agents.api.schemas.ChatAgentResponse(
+        conversation_id = message.conversation_id,
+        timestamp       = timestamp,
+        response        = summary
+    )
+
+    # Save interaction to csv
+    # TODO: df groupby conversation id get latest record based on timestamp
+    csv_file = "saved_conversations.csv"
+    if os.path.exists(csv_file):
+        df = pd.read_csv(csv_file)
+    else:
+        df = pd.DataFrame(columns=['conversation_id', 'timestamp', 'summary'])
+    
+    new_row = {'conversation_id': message.conversation_id, 'timestamp': timestamp, 'summary': summary}
+    df.loc[len(df)] = new_row
+    df.to_csv(csv_file, index=False)
+    
+    return {"api_response": api_response}
+
+    # save to db
+    # delete conversation
+
 @router.post("/chat-agent")
 async def chat_completion(message: agents.api.schemas.UserMessage, db: Session = Depends(get_db)):
     """
     Get a response from the GPT model given a message from the client using the chat
     completion endpoint.
-
-    The response is a json object with the following structure:
-    ```
-    {
-    "api_response": {
-        "conversation_id": "string",
-        "response": "string"
-    },
-    "relevant_history": [
-        {
-        "role": "string",
-        "content": "string"
-        },
-        {
-        "role": "string",
-        "content": "string"
-        },
-        ...
-    ],
-    "metadata": [
-        {
-           'rank': "int",
-            'title': 'string',
-            'priority_date': "YYYY-MM-DD",
-            'filing_date': "YYYY-MM-DD",
-            'grant_date': "YYYY-MM-DD",
-            'publication_date': "YYYY-MM-DD",
-            'inventor': "string",
-            'assignee': "string",
-            'publication_number': "string",
-            'language': "string",
-            'thumbnail': "link",
-            'pdf': "link",
-            'page': "float",
-            'entities' : "list[dict]"
-        },
-        {
-           'rank': "int",
-            'title': 'string',
-            'priority_date': "YYYY-MM-DD",
-            'filing_date': "YYYY-MM-DD",
-            'grant_date': "YYYY-MM-DD",
-            'publication_date': "YYYY-MM-DD",
-            'inventor': "string",
-            'assignee': "string",
-            'publication_number': "string",
-            'language': "string",
-            'thumbnail': "link",
-            'pdf': "link",
-            'page': "float",
-            'entities' : "list[dict]"
-        },
-        ...
-        ]
-    }
-    ```
     """
+    
     log.info(f"User conversation id: {message.conversation_id}")
     log.info(f"User message: {message.message}")
 
@@ -184,10 +233,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
 
     log.info(f"Conversation id: {conversation.id}")
 
-    # NOTE: We are crafting the context first and passing the chat messages in a list
-    # appending the first message (the approach from the agent) to it.
-    context = craft_agent_chat_context(conversation.agent.context)
-    chat_messages = [craft_agent_chat_first_message(conversation.agent.first_message)]
+    chat_messages = []
 
     # NOTE: Append to the conversation all messages until the last interaction from the agent
     # If there are no messages, then this has no effect.
@@ -210,15 +256,35 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
             )
     # NOTE: We could control the conversation by simply adding
     # rules to the length of the history.
-    # if len(hist_messages) > 10:
-    #     # Finish the conversation gracefully.
-    #     log.info("Conversation history is too long, finishing conversation.")
-    #     api_response = agents.api.schemas.ChatAgentResponse(
-    #         conversation_id = message.conversation_id,
-    #         response        = "This conversation is over, good bye."
-    #     )
-    #     return api_response
 
+
+    ### USER INTENT CLASSIFICATION
+    intent = get_user_intent(message.message, chat_messages[-1:]) # What if not adminstration or technical
+    log.info(f"User input classified as: {intent}")
+
+    if "1" in intent:
+        # Adminstration
+        tag = "procedures"
+        path_to_df = "data/a4_db_onboarding.csv"
+        path_to_index = "data/a4_db_onboarding.index"
+        meta_columns = ['rank', 'title', 'publication_date', 'author', 'department', 'publication_number', 'language', 
+            'thumbnail', 'pdf', 'page', 'entities']
+        system_prompt = "You are an organizational agent, helping users with their questions on the organization and adminstrative procedures."
+
+    elif "2" in intent: 
+        # Technical 
+        tag = "technologies"
+        path_to_df = "data/a4_db_data.csv"
+        path_to_index = "data/a4_db_data.index"
+        meta_columns = ['rank', 'title', 'publication_date', 'inventor', 'assignee', 'publication_number', 'language', 
+            'thumbnail', 'pdf', 'page', 'entities']
+        system_prompt = "You are an organizational agent, helping users with their technical questions related to the automotive industry."
+        
+    else: 
+        return {"api_response": "I can only answer questions related to either the organization or technical processes."}
+        # NOTE: Follow up questions are likely missclassified.
+
+    context = craft_agent_chat_context(system_prompt)
     # Send the message to the AI agent and get the response
     service = integrations.OpenAIIntegrationService(
         context = context,
@@ -227,78 +293,36 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
             conversation.agent.response_shape
         )
     )
+
     service.add_chat_history(messages = chat_messages)
-    
     embedding = get_embedding(message.message)
 
-    broad_context, df = retrieve(embedding, top_k = 30)
-
+    broad_context = retrieve(
+        embedding,
+        top_k           = 25,
+        path_to_df      = path_to_df, 
+        path_to_index   = path_to_index
+        )
+    
     # Reranker
-    import requests
+    response = jina_reranker(message.message, broad_context)
 
-    url = f"https://api.jina.ai/v1/rerank"
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer jina_a928d4390faa4b7ba9dc8c748ff57e39VIWwKH6c0_qgw8zyWnwg_tLMvV74"
-    }
-
-    data = {
-        "model": "jina-reranker-v1-base-en",
-        "query": message.message,
-        "documents": broad_context.text_chunks.to_list(),
-        "top_n": 3
-    }
-
-    response = requests.post(url, headers=headers, json=data)
-
-    context = broad_context.iloc[[int(i['index']) for i in response.json()['results']], :].reset_index()
-
-    # Theoretically attributed new relevance we could/ should use
-    context_str = "\n".join(i['document']['text'] for i in response.json()['results'])
-
-    # Get related NER docs
-    context_ner = total_context_ner(context['entities'])["technologies"]
-    context_ner_embed = embed(context_ner)
-
-
-    df_excluded = broad_context.loc[(~broad_context["publication_number"].isin(context["publication_number"].values) & (broad_context['entities'].notnull()))]
-
-    # sort by publication data and rank
-    df_excluded.loc[:, "publication_date"] = pd.to_datetime(df_excluded['publication_date'], format="%Y-%m-%d")
-    df_excluded = df_excluded.sort_values(by=['rank', 'publication_date'], ascending=[True, True])
-
-
-    df_excluded.loc[:, "relevant_ner"] = False
-    i = 0
-    for _, row in df_excluded.iterrows():
-        comparison_list = json.loads(row["entities"])["technologies"]
-        comparison_embed = embed(comparison_list)
-
-        # Check for overlap
-        threshold = 0.95  # Adjust according to your needs
-        overlap = check_overlap(context_ner_embed.data, comparison_embed.data, threshold)
-        row["relevant_ner"] = overlap
-        if overlap == True: 
-            i += 1
-        if i == 3:
-            break
-
-    ner_recommendations = df_excluded.loc[df_excluded["relevant_ner"] == True].to_json(orient='records')
-    
-
-    meta_json_data = context[[
-        'rank', 'title', 'priority_date', 'filing_date', 'grant_date', 'publication_date',
-        'inventor', 'assignee', 'publication_number', 'language', 'thumbnail', 'pdf', 'page', 'entities'
-        ]].to_json(orient='records')
-
+    context = broad_context.iloc[[int(i['index']) for i in response['results']], :].reset_index()
+    context_str = "\n".join(i['document']['text'] for i in response['results'])
     context_prompt =  generate_prompt(message.message, context_str)
-    
 
+    ner_recommendations = get_recommendations(context, broad_context, tag=tag)
+    meta_json_data = context[meta_columns].to_json(orient='records')
+
+    
+    # fuzzy mathching
+    
+    chat_history = service.messages[:1] + service.messages[1:][-4:]
     response = service.answer_to_prompt(
         # We can test different OpenAI models.
         model               = "chat-model",
         prompt              = context_prompt,
+        chat_history        = chat_history,
         # We can test different parameters too.
         temperature         = 0.5,
         max_tokens          = 1000,
@@ -321,12 +345,12 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
         )
     
 
-    log.info(f"Agent response: {response}")
+    log.info(f"Agent response: {response.get("answer")}")
 
     # Prepare response to the user
-    api_response = agents.api.schemas.ChatAgentResponse(
+    api_response = agents.api.schemas.ConversationSaveResponse(
         conversation_id = message.conversation_id,
-        response        = response.get('answer')
+        response        = response.get("answer")
     )
 
     # Save interaction to database
@@ -340,9 +364,98 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
     )
     log.info(f"Conversation message id {db_message.id} saved to database")
 
-    return {"api_response": api_response, "relevant_history": service.messages[:4], "metadata": meta_json_data, "ner_recommendations": ner_recommendations}
+    return {"api_response": api_response, "relevant_history": chat_history, "metadata": meta_json_data, "ner_recommendations": ner_recommendations}
 
 #### NICOLAS ADDED: MOVE APPROPRIATELY
+
+def get_recommendations(context, broad_context, tag):
+    # Get related NER docs
+    context_ner = total_context_ner(context['entities'])[tag]
+
+    df_excluded = broad_context.loc[(~broad_context["publication_number"].isin(context["publication_number"].values) & (broad_context['entities'].notnull()))]
+    # sort by publication data and rank
+    df_excluded.loc[:, "publication_date"] = pd.to_datetime(df_excluded['publication_date'], format="%Y-%m-%d")
+    df_excluded = df_excluded.sort_values(by=['rank', 'publication_date'], ascending=[True, True])
+    df_excluded.loc[:, "relevant_ner"] = np.nan
+    
+    if context_ner:
+        context_ner_embed = embed(context_ner)
+        i = 0
+        for _, row in df_excluded.iterrows():
+            comparison_list = json.loads(row["entities"])[tag]
+            if comparison_list: # TODO:  fuzzy search // muss nur für test fall funktionieren
+                comparison_embed = embed(comparison_list)
+
+                # Check for overlap
+                threshold = 0.50 
+                overlap = check_overlap(context_ner_embed.data, comparison_embed.data, threshold)
+                row["relevant_ner"] = overlap
+                if overlap == True: 
+                    i += 1
+                if i == 3:
+                    break
+
+    ner_recommendations = df_excluded.loc[df_excluded["relevant_ner"] == True].to_json(orient='records')
+    
+    return ner_recommendations
+
+def jina_reranker(msg, context):
+    url = f"https://api.jina.ai/v1/rerank"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer " + os.getenv("JINA_KEY")
+    }
+
+    data = {
+        "model": "jina-reranker-v1-base-en",
+        "query": msg,
+        "documents": context.text_chunks.to_list(),
+        "top_n": 3
+    }
+
+    # TODO: Manuals synthetic
+
+    response = requests.post(url, headers=headers, json=data).json()
+    return response
+
+
+def get_user_intent(query: str, chat_history):
+    prompt = [
+        {
+            "role": "system",
+            "content": 
+                "Classify the user input into one of two categories (1/ 2):\n\n"
+                "(1) Administration and Organizational Information: This category includes queries related to administrative tasks, organizational procedures, and general information about the company's operations.\n"
+                "(2) Patent and Manual Information for Engineering Questions: This category covers inquiries regarding patents, engineering manuals, technical documentation, and guidance related to engineering concepts and practices.\n\n"
+                "Return only the number '1' or '2'\n\n"
+                "Examples:\n"
+                "How do I request time off from work? > returns: 1\n"
+                "What are the steps to onboard a new employee? > returns: 1\n"
+                "Where can I find the company's holiday schedule? > returns: 1\n"
+                "I need information about the filing process for a new patent. > returns: 2\n"
+                "How do I troubleshoot a malfunctioning machine according to the engineering manual? > returns: 2\n"
+                "What is the recommended maintenance schedule for our equipment? > returns: 2 > returns: 2\n"
+                "Where can I locate the technical specifications for product X? > returns: 2\n"
+                "Can you explain the process for obtaining approval for a new project? > returns: 1\n"
+                "What safety protocols should be followed when operating heavy machinery? > returns: 1\n"
+                "I'm looking for information on the latest software updates for our systems. > returns: 1\n"
+        }] + chat_history + [{
+            "role": "user",
+            "content": query + " Return only the number 1 or 2. Take into consideration the previous messages."
+        }]
+        
+    client = AzureOpenAI(
+                    api_key=os.getenv("AZURE_OPENAI_API_KEY"),  
+                    api_version="2024-03-01-preview",
+                    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+                )
+    response = client.chat.completions.create(
+        model       = "chat-model",
+        messages    = prompt
+    ).choices[0].message.content
+    return response
+
 
 # Define function to compute cosine similarity between two vectors
 def compute_similarity(vector1, vector2):
@@ -377,14 +490,18 @@ def embed(list):
     )
     return embeddings
 
-
 def total_context_ner(data: np.array): 
     # Initialize dictionaries to hold aggregated values
     aggregated_data = {
         "technologies": [],
+
         "places": [],
         "people": [],
-        "organizations": []
+        "organizations": [],
+
+        "procedures": [],
+        "departments": [],
+        "projects": []
     }
 
     # Iterate over each JSON string in the array
@@ -400,7 +517,6 @@ def total_context_ner(data: np.array):
         aggregated_data[key] = list(set(aggregated_data[key]))
 
     return aggregated_data
-
 
 def generate_prompt(input_text: str, context) -> list[str]:
     prompt = [
@@ -422,7 +538,7 @@ def generate_prompt(input_text: str, context) -> list[str]:
     return prompt
 
 
-def retrieve_context(search_vector, df_condensed, index_path: str="a4_db_data.index", top_k: int=3, distance_threshold=0.3) -> pd.DataFrame:
+def retrieve_context(search_vector, df_condensed, index, top_k: int=3, distance_threshold=0.3) -> pd.DataFrame:
     """
     function to retrieve relevant documents from an index based on a user query
     - documents are used as context for the LLM
@@ -434,7 +550,6 @@ def retrieve_context(search_vector, df_condensed, index_path: str="a4_db_data.in
     """
 
     # use FAISS index to search for context
-    index = faiss.read_index(index_path)
     distances, ann = vector_similarity(search_vector, index, top_k)
 
     results = pd.DataFrame({"distances": distances[0], "ann": ann[0]})
@@ -469,7 +584,7 @@ def vector_similarity(search_vector, index, top_k: int):
     _vector = np.array(search_vector)
 
     faiss.normalize_L2(_vector)
-    index.nprobe = 10  # increase the number of nearby cells to search too with `nprobe`
+    index.nprobe = 50  # increase the number of nearby cells to search too with `nprobe`
     k = min(top_k, index.ntotal)
 
     distances, ann = index.search(_vector, k=k)
@@ -477,14 +592,14 @@ def vector_similarity(search_vector, index, top_k: int):
     return distances, ann
 
 
-def retrieve(query: str, top_k: int) -> list:
+def retrieve(search_vector: list[float], top_k: int, path_to_df, path_to_index) -> list:
 
-    path_to_df_full = "a4_db_data.csv"
-    df_condensed = pd.read_csv(path_to_df_full)
+    df_condensed = pd.read_csv(path_to_df)
+    index = faiss.read_index(path_to_index)
 
-    context = retrieve_context(query, df_condensed, top_k=top_k)
+    context = retrieve_context(search_vector, df_condensed, index, top_k=top_k)
 
-    return context, df_condensed
+    return context
 
 
 def get_embedding(text_data: str) -> list[float]:

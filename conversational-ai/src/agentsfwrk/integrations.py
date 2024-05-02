@@ -40,7 +40,7 @@ class OpenAIIntegrationService:
         """
         self.messages += messages
 
-    def answer_to_prompt(self, model: str, prompt: str, **kwargs):
+    def answer_to_prompt(self, model: str, prompt: list[dict[str, str]], chat_history: list[dict[str, str]], **kwargs):
         """
         Collects prompts from user, appends to messages from the same conversation
         and return responses from the gpt models.
@@ -59,10 +59,9 @@ class OpenAIIntegrationService:
                 )
 
                 # TODO: Threshold number of past messages. 
-                # TODO: System prompt
                 response = client.chat.completions.create(
                     model       = model,
-                    messages    = self.messages[:4] + prompt,
+                    messages    = chat_history + prompt,
                     **kwargs
                 )
                 break

@@ -60,4 +60,12 @@ class UserMessage(BaseModel):
 
 class ChatAgentResponse(BaseModel):
     conversation_id: str
+    timestamp:  datetime = datetime.utcnow()
+    response: str
+
+class SaveChat(BaseModel):
+    conversation_id: str
+
+class ConversationSaveResponse(BaseModel):
+    conversation_id: str
     response: str
