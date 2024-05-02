@@ -10,3 +10,4 @@ SQLAlchemy
 sqlalchemy-orm
 sqlalchemy
 uvicorn<0.22.0,>=0.21.1
+packaging
