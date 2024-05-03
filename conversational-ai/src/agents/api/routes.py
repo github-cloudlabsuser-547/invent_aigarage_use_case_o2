@@ -352,7 +352,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
         )
     
 
-    log.info(f"Agent response: {response.get("answer")}")
+    # log.info(f"Agent response: {response.get("answer")}")
 
     # Prepare response to the user
     api_response = agents.api.schemas.ConversationSaveResponse(

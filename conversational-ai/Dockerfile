@@ -1,4 +1,4 @@
-FROM python:3.10-slim-bullseye
+FROM python:3.11-slim
 
 # Set the working directory
 WORKDIR /app
@@ -6,19 +6,10 @@ WORKDIR /app
 # Copy the project files to the container
 COPY . .
 
-# Install the package using setup.py
-RUN pip install -e .
+#install all libraries for app
+RUN python -m pip install --upgrade pip && pip install -r requirements.txt
 
-# Install dependencies
-RUN pip install pip -U && \
-    pip install --no-cache-dir -r requirements.txt
-
-# Set the environment variable
-ARG OPENAI_API_KEY
-ENV OPENAI_API_KEY=$OPENAI_API_KEY
-
-# Expose the necessary ports
-EXPOSE 8000
+WORKDIR /app/src
 
 # Run the application
-# CMD ["uvicorn", "agents.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]
