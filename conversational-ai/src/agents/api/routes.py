@@ -129,7 +129,6 @@ async def save_chat(message: agents.api.schemas.SaveChat, db: Session = Depends(
             detail = "Conversation not found. Please create conversation first."
         )
 
-
     chat_messages = []
 
     # NOTE: Append to the conversation all messages until the last interaction from the agent
@@ -233,6 +232,8 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
 
     log.info(f"Conversation id: {conversation.id}")
 
+    message.message = message.message.lower().replace("Quaero, ", "")
+
     chat_messages = []
 
     # NOTE: Append to the conversation all messages until the last interaction from the agent
@@ -262,7 +263,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
     intent = get_user_intent(message.message, chat_messages[-1:]) # What if not adminstration or technical
     log.info(f"User input classified as: {intent}")
 
-    if "1" == intent:
+    if ("1" == intent) or ("organisation" in message.message) or ("admin" in message.message) or ("company" in message.message):
         # Adminstration
         tag = "procedures"
         path_to_df = "data/a4_db_onboarding.csv"
@@ -271,7 +272,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
             'thumbnail', 'pdf', 'page', 'entities']
         system_prompt = "You are an organizational agent, helping users with their questions on the organization and adminstrative procedures."
 
-    elif "2" == intent: 
+    elif ("2" == intent) or ("manual" in message.message) or ("patent" in message.message) or ("tech" in message.message): 
         # Technical 
         tag = "technologies"
         path_to_df = "data/a4_db_data.csv"
