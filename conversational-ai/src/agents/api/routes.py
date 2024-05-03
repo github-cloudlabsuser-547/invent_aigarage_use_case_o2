@@ -285,7 +285,8 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
         tag = None
         system_prompt = "You are an organizational agent supposed to help employees of the company with any question they might have."
         context_prompt = [{"role": "user", "content": message.message}]
-        meta_json_data = []
+        meta_json_data = "[]"
+        
         ner_recommendations = []
            
 
@@ -374,6 +375,8 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
         ),
     )
     log.info(f"Conversation message id {db_message.id} saved to database")
+
+    print(type(meta_json_data))
 
     return {"api_response": api_response, "relevant_history": chat_history, "metadata": meta_json_data, "ner_recommendations": ner_recommendations}
 
