@@ -2,7 +2,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
+# import time
 import pandas as pd
 import numpy as np
 import json
@@ -232,7 +232,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
 
     log.info(f"Conversation id: {conversation.id}")
 
-    message.message = message.message.lower().replace("Quaero, ", "")
+    message.message = message.message.lower().replace("quaero, ", "")
 
     chat_messages = []
 
@@ -282,6 +282,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
         system_prompt = "You are an organizational agent, helping users with their technical questions related to the automotive industry."
         
     else: 
+        tag = None
         system_prompt = "You are an organizational agent supposed to help employees of the company with any question they might have."
         context_prompt = [{"role": "user", "content": message.message}]
         meta_json_data = []
@@ -301,7 +302,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
     service.add_chat_history(messages = chat_messages)
 
 
-    if (intent == "1") or (intent == "2"):
+    if (tag == "technologies") or (tag == "procedures"):
         embedding = get_embedding(message.message)
 
         broad_context = retrieve(
@@ -317,8 +318,11 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
         context = broad_context.iloc[[int(i['index']) for i in response['results']], :].reset_index()
         context_str = "\n".join(i['document']['text'] for i in response['results'])
         context_prompt =  generate_prompt(message.message, context_str)
+        #start_time = time.time()
+        #ner_recommendations = get_recommendations(context, broad_context, tag=tag)
+        ner_recommendations = []
+        #log.info("NER Recommednations took:\n--- %s seconds ---" % (time.time() - start_time))
 
-        ner_recommendations = get_recommendations(context, broad_context, tag=tag)
         meta_json_data = context[meta_columns].to_json(orient='records')
 
         
