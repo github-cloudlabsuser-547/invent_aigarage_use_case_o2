@@ -291,6 +291,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
            
 
     context = craft_agent_chat_context(system_prompt)
+    suffix_context = ""
     # Send the message to the AI agent and get the response
     service = integrations.OpenAIIntegrationService(
         context = context,
@@ -308,15 +309,14 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
 
         broad_context = retrieve(
             embedding,
-            top_k           = 25,
+            top_k           = 30,
             path_to_df      = path_to_df, 
             path_to_index   = path_to_index
             )
         
         # Reranker
-        response = jina_reranker(message.message, broad_context, top_n=5)
-
-        context = broad_context.iloc[[int(i['index']) for i in response['results']], :].reset_index()
+        response = jina_reranker(message.message, broad_context, top_n=10)
+        context = broad_context.iloc[[int(i['index']) for i in response['results']], :]
         context_str = "\n".join(i['document']['text'] for i in response['results'])
         context_prompt =  generate_prompt(message.message, context_str)
         #start_time = time.time()
@@ -326,7 +326,14 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
 
         meta_json_data = context[meta_columns].to_json(orient='records')
 
-        
+        suffix_context = (
+                "\n\nI found the following documents where you can find more details w.r.t. your "
+                "question: "
+            )
+        for d in context.to_dict("records")[:3]: # only display the top three context, no matter top_k
+            context_document = f"\n- Doc {d['publication_number']}: ({d['pdf']}); "
+            suffix_context += context_document
+
     # fuzzy mathching
     
     chat_history = service.messages[:1] + service.messages[1:][-4:]
@@ -362,7 +369,7 @@ async def chat_completion(message: agents.api.schemas.UserMessage, db: Session =
     # Prepare response to the user
     api_response = agents.api.schemas.ConversationSaveResponse(
         conversation_id = message.conversation_id,
-        response        = response.get("answer")
+        response        = response.get("answer") + suffix_context
     )
 
     # Save interaction to database
